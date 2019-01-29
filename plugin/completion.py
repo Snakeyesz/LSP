@@ -212,24 +212,28 @@ class CompletionHandler(sublime_plugin.ViewEventListener):
                 sublime.INHIBIT_WORD_COMPLETIONS | sublime.INHIBIT_EXPLICIT_COMPLETIONS
             )
 
-        if not self.initialized:
+        if not self.initialized or not self.enabled:
             self.initialize()
 
         if self.enabled:
             reuse_completion = self.is_same_completion(prefix, locations)
+            reuse_completion = False
             if self.state == CompletionState.IDLE:
                 if not reuse_completion:
                     self.last_prefix = prefix
                     self.last_location = locations[0]
-                    self.do_request(prefix, locations)
                     self.completions = []
+                    self.do_request(prefix, locations)
 
-            elif self.state in (CompletionState.REQUESTING, CompletionState.CANCELLING):
+            elif self.state in (CompletionState.REQUESTING, CompletionState.CANCELLING, CompletionState.IDLE):
                 self.next_request = (prefix, locations)
                 self.state = CompletionState.CANCELLING
 
             elif self.state == CompletionState.APPLYING:
                 self.state = CompletionState.IDLE
+
+            if not self.completions:
+                return ([], sublime.INHIBIT_WORD_COMPLETIONS | sublime.INHIBIT_EXPLICIT_COMPLETIONS)
 
             return (
                 self.completions,
@@ -238,13 +242,14 @@ class CompletionHandler(sublime_plugin.ViewEventListener):
             )
 
     def do_request(self, prefix: str, locations: 'List[int]'):
-        self.next_request = None
+        # self.next_request = None
         view = self.view
 
         # don't store client so we can handle restarts
         client = client_for_view(view)
         if not client:
             return
+
 
         if settings.complete_all_chars or self.is_after_trigger_character(locations[0]):
             global_events.publish("view.on_purge_changes", self.view)
@@ -301,7 +306,8 @@ class CompletionHandler(sublime_plugin.ViewEventListener):
     def handle_response(self, response: 'Optional[Dict]'):
         global resolvable_completion_items
 
-        if self.state == CompletionState.REQUESTING:
+
+        if self.state in (CompletionState.REQUESTING, CompletionState.IDLE):
             items = []  # type: List[Dict]
             if isinstance(response, dict):
                 items = response["items"] or []
